@@ -1,17 +1,23 @@
 //! Call the Solidity compiler
+extern crate ethereum_types;
 extern crate rustc_hex;
 
+use std::env;
+use std::fmt::Debug;
 use std::fs::File;
-use std::io::{BufReader, Read};
-use std::path::PathBuf;
+use std::io::{BufReader, Read, Write};
+use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str;
 use std::collections::HashMap;
 
+use ethereum_types::Address;
+
 use rustc_hex::FromHex;
 
-/// Build up the compile command
 #[derive(Debug)]
+/// Build up the compile command.
+/// All paths are relative to the root
 pub struct CompileCommand<'a> {
     root: String,
     allow_paths: Vec<String>,
@@ -30,6 +36,7 @@ pub struct CompileCommand<'a> {
 }
 
 impl<'a> CompileCommand<'a> {
+    /// Create a new `CompileCommand` with a given root
     pub fn new(root: &str) -> CompileCommand {
         CompileCommand {
             root: root.to_owned(),
@@ -45,53 +52,64 @@ impl<'a> CompileCommand<'a> {
         }
     }
 
+    /// Authorize `solc` to search in the given path for includes
     pub fn allow_path(&mut self, path: &str) -> &mut Self {
         self.allow_paths.push(path.to_owned());
         self
     }
 
+    /// Output `.abi` files
     pub fn abi(&mut self) -> &mut Self {
         self.abi = Some(());
         self
     }
 
+    /// Output `.bin` files (bytecode)
     pub fn bin(&mut self) -> &mut Self {
         self.bin = Some(());
         self
     }
 
+    /// Add a source `.sol` file
     pub fn add_source(&mut self, path: &str) -> &mut Self {
         self.source_files.push(path.to_owned());
         self
     }
 
+    /// Add a mapping for includes
     pub fn add_mapping(&mut self, lib: &str, path: &str) -> &mut Self {
         self.mappings.insert(lib.to_owned(), path.to_owned());
         self
     }
 
-    pub fn libraries_file(&mut self, path: &'a str) -> &mut Self {
+    // TODO: make this link()?
+    /// Set the file in which to store the library addresses for linking
+    fn libraries_file(&mut self, path: &'a str) -> &mut Self {
         self.libraries = Some(path);
         self
     }
 
+    /// Overwrite existing outputs
     pub fn overwrite(&mut self) -> &mut Self {
         self.overwrite = true;
         self
     }
 
-    pub fn output_dir(&mut self, path: &'a str) -> &mut Self {
+    /// Set the location of the build artifacts
+    fn output_dir(&mut self, path: &'a str) -> &mut Self {
         self.output_dir = Some(path);
         self
     }
 
     // TODO: add EPM package remapping
 
+    /// Get the command that will be executed in the shell
     pub fn command_line(&self) -> String {
         let line = format!("{:?}", self.command);
         line
     }
 
+    /// Build up the shell command for compiling
     pub fn go(&mut self) {
         let mut cmd = Command::new("solc");
 
@@ -117,8 +135,16 @@ impl<'a> CompileCommand<'a> {
             cmd.arg("--bin");
         }
 
-        if let Some(f) = self.libraries {
-            cmd.args(&["--libraries", f]);
+        // If `libraries` is set, add it to the command
+        // currently only handles a path to a library file
+        if let Some(_) = self.libraries {
+            match self.join_output_path("libs.txt") {
+                Ok(ref libraries_file) => {
+                    cmd.arg("--libraries");
+                    cmd.arg(libraries_file);
+                }
+                Err(_) => (),
+            }
         }
 
         if self.overwrite {
@@ -137,6 +163,7 @@ impl<'a> CompileCommand<'a> {
     }
 
     // TODO: create a CompileError
+    /// Execute the compile command in the shell
     pub fn execute(&mut self) -> Option<&mut Command> {
         if let None = self.command {
             self.go();
@@ -144,38 +171,145 @@ impl<'a> CompileCommand<'a> {
 
         self.command.as_mut()
     }
+
+    /// Add the given path to the output dir
+    fn join_output_path<P>(&self, path: P) -> Result<PathBuf, &'static str>
+    where
+        P: AsRef<Path> + Debug,
+    {
+        match self.output_dir {
+            Some(dir) => {
+                let mut buf = PathBuf::from(dir);
+                buf.push(path);
+                Ok(buf)
+            }
+            None => Err("Could not join path to the output dir"),
+        }
+    }
 }
 
-#[derive(Debug)]
-pub struct Solc<'a> {
-    root: String,
-    pub output_dir: Option<&'a str>,
-    allow_paths: Vec<String>,
+/// Join the path
+fn join_path<P>(base: &str, path: P) -> Result<PathBuf, &'static str>
+where
+    P: AsRef<Path> + Debug,
+{
+    let mut buf = PathBuf::from(base);
+    buf.push(path);
+    Ok(buf)
 }
 
-impl<'a> Solc<'a> {
-    pub fn new(root: &str) -> Self {
-        Solc {
-            root: root.to_owned(),
-            output_dir: None,
-            allow_paths: Vec::<String>::new(),
+/// Get the absolute path of a given path
+fn absolute(path: &Path) -> PathBuf {
+    // println!("path: {:?}", path);
+    let result = path.to_path_buf();
+    let mut absolute_path = PathBuf::new();
+    if !result.is_absolute() {
+        match env::current_dir() {
+            Ok(current_dir) => absolute_path.push(current_dir),
+            Err(_) => println!("Could not get current directory"),
         }
     }
 
-    pub fn root(&self) -> &str {
-        &self.root[..]
+    absolute_path.push(result);
+
+    // println!("abs_path: {:?}", absolute_path.as_path());
+    absolute_path
+}
+
+#[derive(Debug)]
+struct LibraryMapping {
+    name: String,
+    address: Address,
+}
+
+#[derive(Debug)]
+/// Wrapper around the Solidity compiler
+/// When you call compile(), you get a `CompileCommand`. Calling `execute()` on the `CompileCommand`
+/// moves to the root directory and actually calls `solc`
+pub struct Solc<'a> {
+    /// Absolute path to compiler root
+    root: PathBuf,
+    pub output_dir: Option<&'a str>,
+    allow_paths: Vec<String>,
+    /// relative to output dir
+    lib_file: &'a str,
+    /// library mappings for linking
+    libraries: Vec<LibraryMapping>,
+}
+
+impl<'a> Solc<'a> {
+    /// Creates a new `Solc` that operates in the `root` directory
+    pub fn new(root: &str) -> Self {
+        // convert root to absolute path
+        let mut p = PathBuf::new();
+        p.push(root);
+        let root_abs = absolute(p.as_path());
+        let root_abs = root_abs
+            .canonicalize()
+            .expect("Could not calculate compiler root");
+
+        Solc {
+            root: root_abs,
+            output_dir: None,
+            allow_paths: Vec::<String>::new(),
+            lib_file: "libs.txt",
+            libraries: Vec::new(),
+        }
     }
 
+    /// Returns the directory compiler's working directory
+    pub fn root(&self) -> &str {
+        self.root.as_os_str().to_str().expect("Could not get root")
+    }
+
+    /// Returns the directory where the compiler output files go
     pub fn output_dir(&self) -> &str {
-        self.output_dir.unwrap()
+        self.output_dir.unwrap_or("")
+    }
+
+    /// Add library address for linking
+    pub fn add_library_address(&mut self, name: &str, address: Address) {
+        self.libraries.push(LibraryMapping {
+            name: name.to_string(),
+            address,
+        });
+    }
+
+    /// Write out the library file from the libraries
+    // TODO: don't actually save to a file?
+    pub fn prepare_link(&self) {
+        match self.output_dir {
+            Some(dir) => {
+                match join_path(dir, self.lib_file) {
+                    Ok(ref path) => {
+                        // want <root>/<path>
+                        let mut full_path = PathBuf::from(self.root());
+                        full_path.push(path);
+                        let mut lib_file =
+                            File::create(full_path).expect("Could not create libs file");
+
+                        // write each library to the file
+                        for lib in self.libraries.iter() {
+                            if let Err(e) = writeln!(lib_file, "{}:{:?}", lib.name, lib.address) {
+                                eprintln!("Couldn't write to library file: {}", e);
+                            }
+                        }
+                    }
+                    // TODO: deal with this properly
+                    Err(_) => panic!("Problem with lib file path"),
+                } // end join_path
+            }
+            None => (),
+        } // end self.output_dir
     }
 
     // load from <root>/<output_dir>/<name>
-    // only load LINKED bytecode
+    // only loads LINKED bytecode
+    // TODO: return Result
     pub fn load_bytecode(&self, name: &str) -> Vec<u8> {
         match self.output_dir {
             Some(ref dir) => {
-                let bytecode_path: PathBuf = [self.root.as_str(), dir, name].iter().collect();
+                let bytecode_path: PathBuf = [self.root(), dir, name].iter().collect();
                 println!("bytecode at: {:?}", bytecode_path);
                 // TODO: use combinators
                 let path = format!("{}", bytecode_path.display());
@@ -190,11 +324,12 @@ impl<'a> Solc<'a> {
         }
     }
 
-    // load from <root>/<output_dir>/<name>
+    /// Load a given ABI file from the output directory
+    /// name is the file name
     pub fn load_abi(&self, name: &str) -> Vec<u8> {
         match self.output_dir {
             Some(ref dir) => {
-                let abi_path: PathBuf = [self.root.as_str(), dir, name].iter().collect();
+                let abi_path: PathBuf = [self.root(), dir, name].iter().collect();
                 let path: &str = abi_path.to_str().unwrap();
                 load_bytes(path)
             }
@@ -204,7 +339,17 @@ impl<'a> Solc<'a> {
 
     pub fn compile(&self) -> CompileCommand {
         // TODO: add allow_paths here
-        CompileCommand::new(self.root())
+        let mut cmd = CompileCommand::new(self.root());
+        // set the output dir of the compiler, relative to its root
+        // output_dir = "../tcr/output"
+        // output_dir_absolute = "/path/to/tcr/output"
+        // root = "/path/to/tcr"
+        let output_dir_relative = self.output_dir();
+        println!("OUTPUT: {}", output_dir_relative);
+        cmd.output_dir(output_dir_relative);
+
+        cmd.libraries_file(self.lib_file);
+        cmd
     }
 }
 
@@ -229,6 +374,14 @@ mod test {
     use super::*;
 
     #[test]
+    fn absolute_should_convert_relative_path() {
+        let p = PathBuf::from("../test");
+        let a = absolute(p.as_path());
+        assert!(a.is_absolute(), "Path is not absolute");
+        assert!(a.ends_with("test"));
+    }
+
+    #[test]
     #[ignore]
     fn test_compile() {
         let compiler = Solc::new("test");
@@ -238,6 +391,13 @@ mod test {
             .expect("No command")
             .output()
             .expect("Problem executing command");
+    }
+
+    #[test]
+    fn should_convert_root_to_absolute_path() {
+        let compiler = Solc::new("../test");
+        let p = PathBuf::from(compiler.root());
+        assert!(p.is_absolute(), "Root is not absolute path");
     }
 
     #[test]
