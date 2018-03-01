@@ -27,6 +27,7 @@ pub struct CompileCommand<'a> {
     // input
     source_files: Vec<String>,
     libraries: Option<&'a str>,
+    link: bool,
     // output types
     abi: Option<()>,
     bin: Option<()>,
@@ -46,6 +47,7 @@ impl<'a> CompileCommand<'a> {
             mappings: HashMap::new(),
             source_files: Vec::new(),
             libraries: None,
+            link: false,
             abi: None,
             bin: None,
             overwrite: false,
@@ -87,7 +89,12 @@ impl<'a> CompileCommand<'a> {
         self
     }
 
-    // TODO: make this link()?
+    /// Include libraries in compilation
+    pub fn link(&mut self) -> &mut Self {
+        self.link = true;
+        self
+    }
+
     /// Set the file in which to store the library addresses for linking
     fn libraries_file(&mut self, path: &'a str) -> &mut Self {
         self.libraries = Some(path);
@@ -142,14 +149,21 @@ impl<'a> CompileCommand<'a> {
 
         // If `libraries` is set, add it to the command
         // currently only handles a path to a library file
-        if let Some(_) = self.libraries {
-            match self.join_output_path("libs.txt") {
-                Ok(ref libraries_file) => {
-                    cmd.arg("--libraries");
-                    cmd.arg(libraries_file);
+        if self.link {
+            // println!("adding link argument");
+            if let Some(_) = self.libraries {
+                // NOTE: if output path is None, this fails
+                // this should not be the case
+                match self.join_output_path("libs.txt") {
+                    Ok(ref libraries_file) => {
+                        cmd.arg("--libraries");
+                        cmd.arg(libraries_file);
+                    },
+                    Err(e) => println!("Problem adding link argument {:?}", e),
                 }
-                Err(_) => (),
             }
+        } else {
+            // println!("not linking");
         }
 
         if self.overwrite {
@@ -408,6 +422,14 @@ mod test {
     }
 
     #[test]
+    fn should_not_add_libs_if_not_in_command() {
+        let compiler = Solc::new("test");
+        let mut builder = compiler.compile();
+        builder.go();
+        assert!(!builder.command_line().as_str().contains("--libraries"));
+    }
+
+    #[test]
     fn make_builder() {
         CompileCommand::new("test");
     }
@@ -452,7 +474,7 @@ mod test {
     #[test]
     fn test_add_lib_file() {
         let mut builder = CompileCommand::new("test");
-        builder.libraries_file("libs.txt").go();
+        builder.libraries_file("libs.txt").bin().link().go();
         assert!(builder.command_line().as_str().contains("libs.txt"));
     }
 
