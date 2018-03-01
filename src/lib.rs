@@ -15,6 +15,8 @@ use ethereum_types::Address;
 
 use rustc_hex::FromHex;
 
+mod utils;
+
 #[derive(Debug)]
 /// Build up the compile command.
 /// All paths are relative to the root
@@ -31,7 +33,7 @@ pub struct CompileCommand<'a> {
     // combined_json
     // output
     overwrite: bool,
-    output_dir: Option<&'a str>,
+    output_dir: Option<PathBuf>,
     command: Option<Command>,
 }
 
@@ -47,7 +49,10 @@ impl<'a> CompileCommand<'a> {
             abi: None,
             bin: None,
             overwrite: false,
-            output_dir: None,
+            // set default to the current directory
+            // NOTE: this gets overwritten if the CompileCommand
+            // is generated from a Solc
+            output_dir: Some(".".into()),
             command: None,
         }
     }
@@ -97,7 +102,7 @@ impl<'a> CompileCommand<'a> {
 
     /// Set the location of the build artifacts
     fn output_dir(&mut self, path: &'a str) -> &mut Self {
-        self.output_dir = Some(path);
+        self.output_dir = Some(PathBuf::from(path));
         self
     }
 
@@ -151,8 +156,9 @@ impl<'a> CompileCommand<'a> {
             cmd.arg("--overwrite");
         }
 
-        if let Some(dir) = self.output_dir {
-            cmd.args(&["-o", dir]);
+        if let Some(ref dir) = self.output_dir {
+            cmd.arg("-o");
+            cmd.arg(dir.as_os_str());
         }
 
         // sources
@@ -178,12 +184,13 @@ impl<'a> CompileCommand<'a> {
         P: AsRef<Path> + Debug,
     {
         match self.output_dir {
-            Some(dir) => {
-                let mut buf = PathBuf::from(dir);
+            Some(ref dir) => {
+                let mut buf = PathBuf::new();
+                buf.push(dir);
                 buf.push(path);
                 Ok(buf)
             }
-            None => Err("Could not join path to the output dir"),
+            None => Err("Could not join path - output dir is not set"),
         }
     }
 }
@@ -211,6 +218,7 @@ fn absolute(path: &Path) -> PathBuf {
     }
 
     absolute_path.push(result);
+    let absolute_path = utils::norm_path(absolute_path);
 
     // println!("abs_path: {:?}", absolute_path.as_path());
     absolute_path
@@ -244,9 +252,6 @@ impl<'a> Solc<'a> {
         let mut p = PathBuf::new();
         p.push(root);
         let root_abs = absolute(p.as_path());
-        let root_abs = root_abs
-            .canonicalize()
-            .expect("Could not calculate compiler root");
 
         Solc {
             root: root_abs,
@@ -337,6 +342,8 @@ impl<'a> Solc<'a> {
         }
     }
 
+    /// Generate a `CompileCommand` from the compiler for building
+    /// up the compilation.
     pub fn compile(&self) -> CompileCommand {
         // TODO: add allow_paths here
         let mut cmd = CompileCommand::new(self.root());
