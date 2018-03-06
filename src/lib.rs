@@ -19,13 +19,14 @@ mod utils;
 #[derive(Debug)]
 /// Build up the compile command.
 /// All paths are relative to the root
-pub struct CompileCommand<'a> {
-    root: String,
-    allow_paths: Vec<String>,
-    mappings: HashMap<String, String>,
+pub struct CompileCommand {
+    root: PathBuf,
+    allow_paths: Vec<PathBuf>,
+    /// dll -> path
+    mappings: HashMap<String, PathBuf>,
     // input
-    source_files: Vec<String>,
-    libraries: Option<&'a str>,
+    source_files: Vec<PathBuf>,
+    libraries: Option<PathBuf>,
     link: bool,
     // output types
     abi: Option<()>,
@@ -37,11 +38,14 @@ pub struct CompileCommand<'a> {
     command: Option<Command>,
 }
 
-impl<'a> CompileCommand<'a> {
+impl CompileCommand {
     /// Create a new `CompileCommand` with a given root
-    pub fn new(root: &str) -> CompileCommand {
+    pub fn new<P>(root: P) -> CompileCommand
+    where
+        P: AsRef<Path>,
+    {
         CompileCommand {
-            root: root.to_owned(),
+            root: root.as_ref().to_owned(),
             allow_paths: Vec::new(),
             mappings: HashMap::new(),
             source_files: Vec::new(),
@@ -59,8 +63,11 @@ impl<'a> CompileCommand<'a> {
     }
 
     /// Authorize `solc` to search in the given path for includes
-    pub fn allow_path(&mut self, path: &str) -> &mut Self {
-        self.allow_paths.push(path.to_owned());
+    pub fn allow_path<P>(&mut self, path: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.allow_paths.push(path.as_ref().to_owned());
         self
     }
 
@@ -77,14 +84,21 @@ impl<'a> CompileCommand<'a> {
     }
 
     /// Add a source `.sol` file
-    pub fn add_source(&mut self, path: &str) -> &mut Self {
-        self.source_files.push(path.to_owned());
+    pub fn add_source<P>(&mut self, path: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.source_files.push(path.as_ref().to_owned());
         self
     }
 
     /// Add a mapping for includes
-    pub fn add_mapping(&mut self, lib: &str, path: &str) -> &mut Self {
-        self.mappings.insert(lib.to_owned(), path.to_owned());
+    pub fn add_mapping<P>(&mut self, lib: &str, path: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.mappings
+            .insert(lib.to_owned(), path.as_ref().to_owned());
         self
     }
 
@@ -95,8 +109,11 @@ impl<'a> CompileCommand<'a> {
     }
 
     /// Set the file in which to store the library addresses for linking
-    fn libraries_file(&mut self, path: &'a str) -> &mut Self {
-        self.libraries = Some(path);
+    fn libraries_file<P>(&mut self, path: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.libraries = Some(path.as_ref().to_owned());
         self
     }
 
@@ -107,8 +124,11 @@ impl<'a> CompileCommand<'a> {
     }
 
     /// Set the location of the build artifacts
-    fn output_dir(&mut self, path: &'a str) -> &mut Self {
-        self.output_dir = Some(PathBuf::from(path));
+    fn output_dir<P>(&mut self, path: P) -> &mut Self
+    where
+        P: AsRef<Path>,
+    {
+        self.output_dir = Some(path.as_ref().to_owned());
         self
     }
 
@@ -133,7 +153,11 @@ impl<'a> CompileCommand<'a> {
         }
 
         for (k, v) in self.mappings.iter() {
-            let line = format!("{}={}", k, v);
+            // remove the double quotes
+            let p = v.to_str()
+                .expect("Could not convert path to str")
+                .trim_matches('"');
+            let line = format!("{}={}", k, p);
             cmd.arg(line);
         }
 
