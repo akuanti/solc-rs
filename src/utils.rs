@@ -1,5 +1,6 @@
 //! Utility functions
 
+use std::env;
 use std::fmt::Debug;
 use std::path::{Component, Path, PathBuf};
 use std::path;
@@ -62,10 +63,46 @@ where
     normalized
 }
 
+/// Get the absolute path of a given path
+pub fn absolute(path: &Path) -> PathBuf {
+    // if path starts with ~, substitute home dir
+    let mut result = path.to_path_buf();
+    if result.starts_with("~") {
+        result = env::home_dir().expect("User has no home directory")
+            .join(path.strip_prefix("~").expect("Could not strip prefix"));
+    }
+
+    // println!("path: {:?}", path);
+    let mut absolute_path = PathBuf::new();
+    if !result.is_absolute() {
+        match env::current_dir() {
+            Ok(current_dir) => absolute_path.push(current_dir),
+            Err(_) => println!("Could not get current directory"),
+        }
+    }
+
+    absolute_path.push(result);
+    let absolute_path = norm_path(absolute_path);
+
+    // println!("abs_path: {:?}", absolute_path.as_path());
+    absolute_path
+}
+
+/// Join the path
+pub fn join_path<P>(base: &str, path: P) -> Result<PathBuf, &'static str>
+where
+    P: AsRef<Path> + Debug,
+{
+    let mut buf = PathBuf::from(base);
+    buf.push(path);
+    Ok(buf)
+}
+
 #[cfg(test)]
 mod test {
     use super::*;
 
+    // normalization
     #[test]
     fn should_leave_root() {
         let p = norm_path("/");
@@ -94,5 +131,23 @@ mod test {
     fn should_reduce_multiple_initial_slashes() {
         let p = norm_path("///A/foo/../B");
         assert_eq!(p, PathBuf::from("/A/B"));
+    }
+
+    // absolute
+    #[test]
+    fn absolute_should_convert_relative_path() {
+        let p = PathBuf::from("../test");
+        let a = absolute(p.as_path());
+        assert!(a.is_absolute(), "Path is not absolute");
+        assert!(a.ends_with("test"));
+    }
+
+    #[test]
+    fn absolute_should_expand_home_dir() {
+        let p = PathBuf::from("~/tcr");
+        let a = absolute(p.as_path());
+
+        assert!(a.is_absolute(), "Path is not absolute");
+        assert!(!a.starts_with("~"), "~ was not removed from path");
     }
 }

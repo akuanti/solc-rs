@@ -2,7 +2,6 @@
 extern crate ethereum_types;
 extern crate rustc_hex;
 
-use std::env;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
@@ -158,7 +157,7 @@ impl<'a> CompileCommand<'a> {
                     Ok(ref libraries_file) => {
                         cmd.arg("--libraries");
                         cmd.arg(libraries_file);
-                    },
+                    }
                     Err(e) => println!("Problem adding link argument {:?}", e),
                 }
             }
@@ -209,41 +208,6 @@ impl<'a> CompileCommand<'a> {
     }
 }
 
-/// Join the path
-fn join_path<P>(base: &str, path: P) -> Result<PathBuf, &'static str>
-where
-    P: AsRef<Path> + Debug,
-{
-    let mut buf = PathBuf::from(base);
-    buf.push(path);
-    Ok(buf)
-}
-
-/// Get the absolute path of a given path
-fn absolute(path: &Path) -> PathBuf {
-    // if path starts with ~, substitute home dir
-    let mut result = path.to_path_buf();
-    if result.starts_with("~") {
-        result = env::home_dir().expect("User has no home directory")
-            .join(path.strip_prefix("~").expect("Could not strip prefix"));
-    }
-
-    // println!("path: {:?}", path);
-    let mut absolute_path = PathBuf::new();
-    if !result.is_absolute() {
-        match env::current_dir() {
-            Ok(current_dir) => absolute_path.push(current_dir),
-            Err(_) => println!("Could not get current directory"),
-        }
-    }
-
-    absolute_path.push(result);
-    let absolute_path = utils::norm_path(absolute_path);
-
-    // println!("abs_path: {:?}", absolute_path.as_path());
-    absolute_path
-}
-
 #[derive(Debug)]
 struct LibraryMapping {
     name: String,
@@ -271,7 +235,7 @@ impl<'a> Solc<'a> {
         // convert root to absolute path
         let mut p = PathBuf::new();
         p.push(root);
-        let root_abs = absolute(p.as_path());
+        let root_abs = utils::absolute(p.as_path());
 
         Solc {
             root: root_abs,
@@ -305,7 +269,7 @@ impl<'a> Solc<'a> {
     pub fn prepare_link(&self) {
         match self.output_dir {
             Some(dir) => {
-                match join_path(dir, self.lib_file) {
+                match utils::join_path(dir, self.lib_file) {
                     Ok(ref path) => {
                         // want <root>/<path>
                         let mut full_path = PathBuf::from(self.root());
@@ -399,23 +363,6 @@ fn load_bytes(path: &str) -> Vec<u8> {
 #[cfg(test)]
 mod test {
     use super::*;
-
-    #[test]
-    fn absolute_should_convert_relative_path() {
-        let p = PathBuf::from("../test");
-        let a = absolute(p.as_path());
-        assert!(a.is_absolute(), "Path is not absolute");
-        assert!(a.ends_with("test"));
-    }
-
-    #[test]
-    fn absolute_should_expand_home_dir() {
-        let p = PathBuf::from("~/tcr");
-        let a = absolute(p.as_path());
-
-        assert!(a.is_absolute(), "Path is not absolute");
-        assert!(!a.starts_with("~"), "~ was not removed from path");
-    }
 
     #[test]
     #[ignore]
