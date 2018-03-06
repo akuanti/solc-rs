@@ -221,8 +221,14 @@ where
 
 /// Get the absolute path of a given path
 fn absolute(path: &Path) -> PathBuf {
+    // if path starts with ~, substitute home dir
+    let mut result = path.to_path_buf();
+    if result.starts_with("~") {
+        result = env::home_dir().expect("User has no home directory")
+            .join(path.strip_prefix("~").expect("Could not strip prefix"));
+    }
+
     // println!("path: {:?}", path);
-    let result = path.to_path_buf();
     let mut absolute_path = PathBuf::new();
     if !result.is_absolute() {
         match env::current_dir() {
@@ -400,6 +406,15 @@ mod test {
         let a = absolute(p.as_path());
         assert!(a.is_absolute(), "Path is not absolute");
         assert!(a.ends_with("test"));
+    }
+
+    #[test]
+    fn absolute_should_expand_home_dir() {
+        let p = PathBuf::from("~/tcr");
+        let a = absolute(p.as_path());
+
+        assert!(a.is_absolute(), "Path is not absolute");
+        assert!(!a.starts_with("~"), "~ was not removed from path");
     }
 
     #[test]
