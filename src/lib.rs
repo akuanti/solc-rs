@@ -147,12 +147,12 @@ impl CompileCommand {
         cmd.current_dir(&self.root);
 
         // input config
-        if self.allow_paths.len() > 0 {
+        if self.allow_paths.is_empty() {
             cmd.arg("--allow-paths");
             cmd.args(&self.allow_paths);
         }
 
-        for (k, v) in self.mappings.iter() {
+        for (k, v) in &self.mappings {
             // remove the double quotes
             let p = v.to_str()
                 .expect("Could not convert path to str")
@@ -162,11 +162,11 @@ impl CompileCommand {
         }
 
         // output types
-        if let Some(_) = self.abi {
+        if self.abi.is_some() {
             cmd.arg("--abi");
         }
 
-        if let Some(_) = self.bin {
+        if self.bin.is_some() {
             cmd.arg("--bin");
         }
 
@@ -174,7 +174,7 @@ impl CompileCommand {
         // currently only handles a path to a library file
         if self.link {
             // println!("adding link argument");
-            if let Some(_) = self.libraries {
+            if self.libraries.is_some() {
                 // NOTE: if output path is None, this fails
                 // this should not be the case
                 match self.join_output_path("libs.txt") {
@@ -208,7 +208,7 @@ impl CompileCommand {
     // TODO: create a CompileError
     /// Execute the compile command in the shell
     pub fn execute(&mut self) -> Option<&mut Command> {
-        if let None = self.command {
+        if self.command.is_none() {
             self.go();
         }
 
@@ -291,28 +291,25 @@ impl<'a> Solc<'a> {
     /// Write out the library file from the libraries
     // TODO: don't actually save to a file?
     pub fn prepare_link(&self) {
-        match self.output_dir {
-            Some(dir) => {
-                match utils::join_path(dir, self.lib_file) {
-                    Ok(ref path) => {
-                        // want <root>/<path>
-                        let mut full_path = PathBuf::from(self.root());
-                        full_path.push(path);
-                        let mut lib_file =
-                            File::create(full_path).expect("Could not create libs file");
+        if let Some(dir) = self.output_dir {
+            match utils::join_path(dir, self.lib_file) {
+                Ok(ref path) => {
+                    // want <root>/<path>
+                    let mut full_path = PathBuf::from(self.root());
+                    full_path.push(path);
+                    let mut lib_file =
+                        File::create(full_path).expect("Could not create libs file");
 
-                        // write each library to the file
-                        for lib in self.libraries.iter() {
-                            if let Err(e) = writeln!(lib_file, "{}:{:?}", lib.name, lib.address) {
-                                eprintln!("Couldn't write to library file: {}", e);
-                            }
+                    // write each library to the file
+                    for lib in &self.libraries {
+                        if let Err(e) = writeln!(lib_file, "{}:{:?}", lib.name, lib.address) {
+                            eprintln!("Couldn't write to library file: {}", e);
                         }
                     }
-                    // TODO: deal with this properly
-                    Err(_) => panic!("Problem with lib file path"),
-                } // end join_path
-            }
-            None => (),
+                }
+                // TODO: deal with this properly
+                Err(_) => panic!("Problem with lib file path"),
+            } // end join_path
         } // end self.output_dir
     }
 
