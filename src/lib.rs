@@ -147,7 +147,7 @@ impl CompileCommand {
         cmd.current_dir(&self.root);
 
         // input config
-        if self.allow_paths.is_empty() {
+        if !self.allow_paths.is_empty() {
             cmd.arg("--allow-paths");
             cmd.args(&self.allow_paths);
         }
