@@ -2,13 +2,13 @@
 extern crate ethereum_types;
 extern crate rustc_hex;
 
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::str;
-use std::collections::HashMap;
 
 use ethereum_types::Address;
 
@@ -154,7 +154,8 @@ impl CompileCommand {
 
         for (k, v) in &self.mappings {
             // remove the double quotes
-            let p = v.to_str()
+            let p = v
+                .to_str()
                 .expect("Could not convert path to str")
                 .trim_matches('"');
             let line = format!("{}={}", k, p);
@@ -297,8 +298,7 @@ impl<'a> Solc<'a> {
                     // want <root>/<path>
                     let mut full_path = PathBuf::from(self.root());
                     full_path.push(path);
-                    let mut lib_file =
-                        File::create(full_path).expect("Could not create libs file");
+                    let mut lib_file = File::create(full_path).expect("Could not create libs file");
 
                     // write each library to the file
                     for lib in &self.libraries {
@@ -446,12 +446,10 @@ mod test {
     fn test_add_source() {
         let mut builder = CompileCommand::new("test");
         builder.add_source("contracts/Test.sol").go();
-        assert!(
-            builder
-                .command_line()
-                .as_str()
-                .contains("contracts/Test.sol")
-        );
+        assert!(builder
+            .command_line()
+            .as_str()
+            .contains("contracts/Test.sol"));
     }
 
     #[test]
@@ -489,12 +487,4 @@ mod test {
     // compile
     // load bytecode
     // load unlinked bytecode
-}
-
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn it_works() {
-        assert_eq!(2 + 2, 4);
-    }
 }

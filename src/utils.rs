@@ -1,10 +1,10 @@
 //! Utility functions
 
 use std::env;
-use std::fmt::Debug;
-use std::path::{Component, Path, PathBuf};
-use std::path;
 use std::ffi::OsString;
+use std::fmt::Debug;
+use std::path;
+use std::path::{Component, Path, PathBuf};
 
 // ported from Python
 /// Normalize a path, eliminating double slashes, etc.
