@@ -4,5 +4,6 @@ version = "0.1.0"
 authors = ["Akua Nti <akua.nti@consensys.net>"]
 
 [dependencies]
+dirs = "1.0"
 rustc-hex = "1.0.0"
 ethereum-types = "0.3"

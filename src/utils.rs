@@ -68,7 +68,8 @@ pub fn absolute(path: &Path) -> PathBuf {
     // if path starts with ~, substitute home dir
     let mut result = path.to_path_buf();
     if result.starts_with("~") {
-        result = env::home_dir().expect("User has no home directory")
+        result = dirs::home_dir()
+            .expect("User has no home directory")
             .join(path.strip_prefix("~").expect("Could not strip prefix"));
     }
 
