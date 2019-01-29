@@ -1,6 +1,6 @@
 # Solc
 
-Solidity compiler bindings for Rust.
+A Rust interface to the Solidity compiler.
 
 ## Introduction
 The basic usage of the Solidity compiler (`solc`) is that you specify the input files to be compiled and the types of outputs you would like. In addition, you may specify *how* you want to compile (i.e. optimizations, search paths, etc.).
@@ -18,8 +18,7 @@ At minimum, you need to create the compiler and set its working and output direc
 
 ```rust
 // instantiate a compiler with a compilation directory relative to the current directory
-let compile_dir = ".";
-let mut compiler = solc::Solc::new(compile_dir);
+let mut compiler = solc::Solc::new(".");
 let build_dir = "build";
 compiler.output_dir = Some(build_dir);
 

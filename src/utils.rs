@@ -29,7 +29,7 @@ where
     //     }
     // }
 
-    let mut new_comps: Vec<Component> = Vec::new();
+    let mut new_comps: Vec<Component<'_>> = Vec::new();
     let empty: OsString = OsString::new();
 
     for component in path.as_ref().components() {
