@@ -14,6 +14,52 @@ pub struct CompileSettings {
     pub libraries_file: Option<PathBuf>,
 }
 
+#[derive(Clone, Debug)]
+/// Available outputs when outputting to separate files
+pub enum SeparateOutput {
+    Ast,
+    AstJson,
+    AstCompactJson,
+    Asm,
+    AsmJson,
+    Opcodes,
+    Bin,
+    BinRuntime,
+    Abi,
+    Hashes,
+    UserDoc,
+    DevDoc,
+    Metadata,
+}
+
+#[derive(Clone, Debug)]
+/// Available outputs when outputting to combined JSON
+pub enum CombinedOutput {
+    Abi,
+    Asm,
+    Ast,
+    Bin,
+    BinRuntime,
+    CompactFormat,
+    DevDoc,
+    Hashes,
+    Interface,
+    Metadata,
+    Opcodes,
+    SourceMap,
+    SourceMapRuntime,
+    UserDoc,
+}
+
+#[derive(Debug)]
+/// Possible compiler outputs
+pub enum CompileOutput {
+    None,
+    // TODO: these should be sets so there are no duplicates
+    Separate(Vec<SeparateOutput>),
+    CombinedJson(Vec<CombinedOutput>),
+}
+
 #[derive(Debug)]
 /// Build up the compile command.
 /// All paths are relative to the root
@@ -27,7 +73,7 @@ pub struct CompileCommand {
     libraries: Option<PathBuf>,
     link: bool,
     // output types
-    // TODO: output: Vec<PlainCompileOutput> | Vec<CombinedJsonOutput>
+    outputs: CompileOutput,
     abi: Option<()>,
     bin: Option<()>,
     // combined_json
@@ -47,6 +93,7 @@ impl Default for CompileCommand {
             source_files: vec![],
             libraries: None,
             link: false,
+            outputs: CompileOutput::None,
             abi: None,
             bin: None,
             overwrite: false,
@@ -90,13 +137,55 @@ impl CompileCommand {
 
     /// Output `.abi` files
     pub fn abi(&mut self) -> &mut Self {
-        self.abi = Some(());
-        self
+        self.add_separate(&SeparateOutput::Abi)
     }
 
     /// Output `.bin` files (bytecode)
     pub fn bin(&mut self) -> &mut Self {
-        self.bin = Some(());
+        self.add_separate(&SeparateOutput::Bin)
+    }
+
+    /// Output separate files
+    pub fn outputs(&mut self, formats: &[SeparateOutput]) -> &mut Self {
+        for fmt in formats {
+            self.add_separate(fmt);
+        }
+        self
+    }
+
+    /// Add an output type to be created in the output directory
+    fn add_separate(&mut self, output: &SeparateOutput) -> &mut Self {
+        match self.outputs {
+            CompileOutput::None => {
+                self.outputs = CompileOutput::Separate(vec![output.clone()]);
+            }
+            CompileOutput::Separate(ref mut outputs) => {
+                outputs.push(output.clone());
+            }
+            CompileOutput::CombinedJson(_) => panic!("Cannot combine combined and separate modes"),
+        }
+        self
+    }
+
+    /// Output combined JSON file
+    pub fn combined_json(&mut self, formats: &[CombinedOutput]) -> &mut Self {
+        for fmt in formats {
+            self.add_combined(fmt);
+        }
+        self
+    }
+
+    /// Add an output type to be included in the combined JSON file
+    fn add_combined(&mut self, output: &CombinedOutput) -> &mut Self {
+        match self.outputs {
+            CompileOutput::None => {
+                self.outputs = CompileOutput::CombinedJson(vec![output.clone()]);
+            }
+            CompileOutput::CombinedJson(ref mut outputs) => {
+                outputs.push(output.clone());
+            }
+            CompileOutput::Separate(_) => panic!("Cannot combine combined and separate modes"),
+        }
         self
     }
 
@@ -180,12 +269,52 @@ impl CompileCommand {
         }
 
         // output types
-        if self.abi.is_some() {
-            cmd.arg("--abi");
-        }
-
-        if self.bin.is_some() {
-            cmd.arg("--bin");
+        // println!("OUTPUTS {:?}", self.outputs);
+        match &self.outputs {
+            CompileOutput::None => (),
+            CompileOutput::Separate(outputs) => {
+                let args: Vec<&str> = outputs
+                    .iter()
+                    .map(|output| match output {
+                        SeparateOutput::Abi => "--abi",
+                        SeparateOutput::Asm => "--asm",
+                        SeparateOutput::AsmJson => "--asm-json",
+                        SeparateOutput::Ast => "--ast",
+                        SeparateOutput::AstJson => "--ast-json",
+                        SeparateOutput::AstCompactJson => "--ast-compact-json",
+                        SeparateOutput::Bin => "--bin",
+                        SeparateOutput::BinRuntime => "--bin-runtime",
+                        SeparateOutput::Hashes => "--hashes",
+                        SeparateOutput::Metadata => "--metadata",
+                        SeparateOutput::Opcodes => "--opcodes",
+                        SeparateOutput::DevDoc => "--devdoc",
+                        SeparateOutput::UserDoc => "--userdoc",
+                    })
+                    .collect();
+                cmd.args(args);
+            }
+            CompileOutput::CombinedJson(outputs) => {
+                let args: Vec<&str> = outputs
+                    .iter()
+                    .map(|output| match output {
+                        CombinedOutput::Abi => "abi",
+                        CombinedOutput::Asm => "asm",
+                        CombinedOutput::Ast => "ast",
+                        CombinedOutput::Bin => "bin",
+                        CombinedOutput::BinRuntime => "bin-runtime",
+                        CombinedOutput::CompactFormat => "compact-format",
+                        CombinedOutput::DevDoc => "devdoc",
+                        CombinedOutput::Hashes => "hashes",
+                        CombinedOutput::Interface => "interface",
+                        CombinedOutput::Metadata => "metadata",
+                        CombinedOutput::Opcodes => "opcodes",
+                        CombinedOutput::SourceMap => "srcmap",
+                        CombinedOutput::SourceMapRuntime => "srcmap-runtime",
+                        CombinedOutput::UserDoc => "userdoc",
+                    })
+                    .collect();
+                cmd.args(&["--combined-json", &args.join(",")]);
+            }
         }
 
         // If `libraries` is set, add it to the command
@@ -335,6 +464,99 @@ mod test {
         assert!(!builder.command_line().as_str().contains("--libraries"));
     }
     // output_dir
+
+    fn strip_quotes(command: &str) -> String {
+        command.replace("\"", "")
+    }
+
+    #[test]
+    fn test_combined_json() {
+        let mut builder = CompileCommand::new("test");
+        builder
+            .combined_json(&vec![CombinedOutput::Abi, CombinedOutput::Bin])
+            .build();
+
+        let line = strip_quotes(&builder.command_line());
+        assert!(line.contains("--combined-json abi,bin"));
+    }
+
+    #[test]
+    fn test_all_combined_json() {
+        use CombinedOutput::*;
+        let mut builder = CompileCommand::new("test");
+        let all = vec![
+            Abi,
+            Asm,
+            Ast,
+            Bin,
+            BinRuntime,
+            CompactFormat,
+            DevDoc,
+            Hashes,
+            Interface,
+            Metadata,
+            Opcodes,
+            SourceMap,
+            SourceMapRuntime,
+            UserDoc,
+        ];
+        builder.combined_json(&all).build();
+
+        let line = strip_quotes(&builder.command_line());
+        println!("{:?}", line);
+        assert!(line.contains(
+            "--combined-json abi,asm,ast,bin,bin-runtime,compact-format,devdoc,hashes,interface,metadata,opcodes,srcmap,srcmap-runtime,userdoc"
+        ));
+    }
+
+    #[test]
+    fn test_multiple_outputs() {
+        let mut builder = CompileCommand::new("test");
+        builder
+            .outputs(&vec![SeparateOutput::Abi, SeparateOutput::Bin])
+            .build();
+
+        let line = builder.command_line();
+        assert!(line.contains("--abi"));
+        assert!(line.contains("--bin"));
+    }
+
+    #[test]
+    fn test_all_outputs() {
+        use SeparateOutput::*;
+        let mut builder = CompileCommand::new("test");
+        let all = vec![
+            Ast,
+            AstJson,
+            AstCompactJson,
+            Asm,
+            AsmJson,
+            Opcodes,
+            Bin,
+            BinRuntime,
+            Abi,
+            Hashes,
+            UserDoc,
+            DevDoc,
+            Metadata,
+        ];
+        builder.outputs(&all).build();
+
+        let line = builder.command_line();
+        assert!(line.contains("--ast"));
+        assert!(line.contains("--ast-json"));
+        assert!(line.contains("--ast-compact-json"));
+        assert!(line.contains("--asm"));
+        assert!(line.contains("--asm-json"));
+        assert!(line.contains("--opcodes"));
+        assert!(line.contains("--bin"));
+        assert!(line.contains("--bin-runtime"));
+        assert!(line.contains("--abi"));
+        assert!(line.contains("--hashes"));
+        assert!(line.contains("--userdoc"));
+        assert!(line.contains("--devdoc"));
+        assert!(line.contains("--metadata"));
+    }
 
     // test join_output_dir
     // test join_root
